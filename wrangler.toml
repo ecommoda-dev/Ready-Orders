@@ -33,12 +33,16 @@ SHOP_DOMAIN = "6c7e1a-53.myshopify.com"
 # ⚠️ بعد إضافة أي سر → Deployments → Version History → ⋯ → **Promote**
 #    من غير Promote القيمة بتفضل undefined → كل نداء Unauthorized.
 # ─────────────────────────────────────────────────────────────
-# WORKER_SECRET   ← 🔴 **قيمة مجموعة `warehouse_ops`** — مش قيمة فريدة للأداة دي.
-#                    الهب بيبعت سر واحد لكل الـ Workers من مفتاح localStorage
-#                    واحد (Standards #39). قيمة مختلفة = 401 على كل نداء.
-#                    ⚠️ والانضمام للمجموعة **لازم يتسجّل** في
-#                    `ecommoda-constants` → `references/secret-groups.md`
-#                    (قاعدة ٢) — عضو غير مسجّل = التدوير بيتكسر بصمت.
+# WORKER_SECRET   ← 🔴 **قيمة مجموعة `delivery_cod_ops`** — مش قيمة فريدة للأداة
+#                    دي. الهب بيبعت سر واحد لتلات Workers من مفتاح
+#                    localStorage واحد (Standards #39): الدخول + الطابورين.
+#                    قيمة مختلفة هنا = 401 من الأداة دي بس، والشاشة بتفتح
+#                    عادي وطابورها لوحده هو اللي بيقع.
+#                    ⚠️ **ومجموعة مستقلة عن `warehouse_ops`** — محطة الشحن
+#                    مالهاش علاقة بسر محطة المخزن.
+#                    ⚠️ والانضمام **لازم يتسجّل** في `ecommoda-constants` →
+#                    `references/secret-groups.md` (قاعدة ٢) — عضو غير مسجّل
+#                    = التدوير بيتكسر بصمت.
 # CLIENT_ID       ← Shopify OAuth
 # CLIENT_SECRET   ← Shopify OAuth
 # ─────────────────────────────────────────────────────────────

@@ -28,7 +28,7 @@
 الـ Worker : https://ready-orders-worker.ecommoda-dev.workers.dev
 الواجهة    : https://ecommoda-dev.github.io/Delivery-COD-Operations-Center/ready-orders.html
 D1         : ❌ الأداة مابتلمسش السجل
-مجموعة السر : warehouse_ops   ← 🔴 مش سر فريد للأداة دي
+مجموعة السر : delivery_cod_ops   ← 🔴 مش سر فريد للأداة دي · ومستقلة عن المخزن
 ```
 
 ## Endpoints
@@ -134,16 +134,19 @@ const ALLOWED_ORIGINS = ['https://ecommoda-dev.github.io'];
 |---|---|---|
 | ① | إنشاء Worker باسم **`ready-orders-worker`** بالظبط | الرابط في `DCO_WORKERS.ready.url` مايردّش |
 | ② | ربط Workers Builds على الريبو ده (`main`) | أي push مابينشرش |
-| ③ | **`WORKER_SECRET` = قيمة مجموعة `warehouse_ops`** → **Promote** | كل نداء `401` |
+| ③ | **`WORKER_SECRET` = قيمة مجموعة `delivery_cod_ops`** → **Promote** | كل نداء `401` |
 | ④ | `CLIENT_ID` + `CLIENT_SECRET` → **Promote** | OAuth بيفشل والطابور بيقع |
-| ⑤ | تسجيل الأداة في **مجموعة `warehouse_ops`** في `ecommoda-constants` → `references/secret-groups.md` | إجراء التدوير بيتكسر **بصمت** |
+| ⑤ | تسجيل الأداة في **مجموعة `delivery_cod_ops`** في `ecommoda-constants` → `references/secret-groups.md` | إجراء التدوير بيتكسر **بصمت** |
 
 > 🔴 **③ أهم واحدة، والفخّ إن `WORKER_SECRET` هنا مش قيمة فريدة.** الهب بيبعت
-> **سر واحد** لكل الـ Workers من مفتاح `localStorage` واحد (Standards #39).
-> سر خاص بالأداة = `401` على كل نداء، والصفحة بتفتح والهيدر شغّال وأول
-> استعلام بيقع.
-> ✅ **والمكسب إن الأداة دي مالهاش نسخة مستقلة** — فمفيش سر قديم لازم يتلزق في
-> مكانين.
+> **سر واحد** لتلات Workers من مفتاح `localStorage` واحد (Standards #39):
+> Worker الدخول + الطابورين. سر خاص بالأداة = `401` من الأداة دي بس —
+> والشاشة بتفتح عادي، والدخول شغّال، **وطابورها لوحده هو اللي بيقع**.
+> ⚠️ **والمجموعة مستقلة عن `warehouse_ops`** (قرار أحمد 15-09-2026) — محطة
+> الشحن أجهزتها غير أجهزة المخزن، فتسريب من جهاز بيمسّ محطة واحدة بس.
+> ⚠️ **وثمنه مُعلَن:** الجهاز اللي عليه محطة المخزن **مش** مضبوط هنا
+> تلقائيًا — السر الجديد بيتلزق مرة واحدة على كل جهاز.
+> ✅ **والأداة دي مالهاش نسخة مستقلة** — فمفيش سر قديم لازم يتلزق في مكانين.
 > ⚠️ `?action=diag` بيثبّتها: **بصمة السر القصيرة** لازم تطابق باقي أعضاء
 > المجموعة (سرّين مختلفين بنفس الطول شكلهم واحد، فالطول لوحده مش كافي).
 
@@ -192,9 +195,9 @@ node docs/queues-check.mjs      # ٨٠ بند للهب كله
 | ecommoda-html-builder | **v6.6.0** |
 
 آخر مطابقة: 15-09-2026 · الـ Worker `1.0.0`
-🔴 معلّقة: **إنشاء الـ Worker + ربط Builds + `WORKER_SECRET` (سر `warehouse_ops`)
-+ `CLIENT_ID`/`CLIENT_SECRET` → Promote** · **تسجيل الأداة في مجموعة
-`warehouse_ops`**
+🔴 معلّقة: **إنشاء الـ Worker + ربط Builds + `WORKER_SECRET` (سر `delivery_cod_ops`)
++ `CLIENT_ID`/`CLIENT_SECRET` → Promote** · **تسجيل مجموعة `delivery_cod_ops`
+في `ecommoda-constants`**
 
 ---
 
