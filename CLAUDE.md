@@ -2,12 +2,12 @@
 
 # طابور الأوردرات الجاهزة — Ready Orders (`Ready-Orders`)
 
-![version](https://img.shields.io/badge/worker-v1.0.0-blue)
+![version](https://img.shields.io/badge/worker-v1.1.0-blue)
 
 **بتعمل إيه:** بترجّع الأوردرات اللي حالتها **`Ready`** — الشحنة الأصلية
 (`custom.manual_status`) أو دورة الاستبدال/الاسترجاع (`custom.status_2_r_e`).
 **مين بيستخدمها:** الشحن والتحصيل
-**الإصدار:** `1.0.0` (`WORKER_VERSION` في `index.js`)
+**الإصدار:** `1.1.0` (`WORKER_VERSION` في `index.js`)
 
 > 🔴 **الريبو ده Worker وبس — مفيش واجهة هنا ومفيش نسخة مستقلة** (قرار أحمد
 > 15-09-2026، بنفس سابقة `Package-Transfer-To-Office`). الواجهة الوحيدة هي
@@ -27,6 +27,7 @@
 ```
 الـ Worker : https://ready-orders-worker.ecommoda-dev.workers.dev
 الواجهة    : https://ecommoda-dev.github.io/Delivery-COD-Operations-Center/ready-orders.html
+             («قسم الجاهز للشحن» — اتسمّت كده في هب الشحن v1.1.0)
 D1         : ❌ الأداة مابتلمسش السجل
 مجموعة السر : delivery_cod_ops   ← 🔴 مش سر فريد للأداة دي · ومستقلة عن المخزن
 ```
@@ -73,9 +74,31 @@ metafields.custom.status_2_r_e:'Ready'      ← دورة الاستبدال/ال
 ## الحقول الراجعة — عقد مع الواجهة
 
 `shapeOrder` بيرجّع: `orderId` (رقمي) · `orderGid` · `orderName` · `createdAt` ·
-`cancelledAt` · `fulfillment` · `financial` · `customer` · `city` · `province` ·
-`itemsQty` · `total` · `currency` · `zone` · `courier` · `s1` · `s2` ·
-`packedAtS1`/`S2` · `packedByS1`/`S2` · `whereaboutsS1`/`S2` · `trackingLegacy`.
+`cancelledAt` · `fulfillment` · `financial` · `customer` · **`address1`** ·
+**`address2`** · `city` · `province` · `itemsQty` · `total` · `currency` ·
+`zone` · `courier` · `s1` · `s2` · `packedAtS1`/`S2` · `packedByS1`/`S2` ·
+`whereaboutsS1`/`S2` · `trackingLegacy`.
+
+### 🔴 `address1`/`address2` — جداد في `1.1.0` (طلب أحمد 16-09-2026)
+
+الواجهة بقى فيها **عمود «العنوان»** بعد عمود العميل، والحقلين دول مصدره.
+
+- 🔴 **بيرجعوا خام ومنفصلين — ⛔ ممنوع نركّبهم هنا في نص واحد.** الواجهة
+  بتعرضهم في خلية واحدة، لكنها **محتاجة تعرف إيه اللي ناقص** عشان تقول
+  **«بلا عنوان»** صراحةً بدل ما تعرض فاصلة معلّقة على سطر فاضي. التركيب في
+  الـ Worker بيشيل المعلومة دي **قبل** ما توصل للشاشة.
+- ✅ **وصفر زيادة في تكلفة الاستعلام.** التكلفة عند شوبيفاي بتتحسب
+  **بالكائنات والـ connections**، مش بعدد الحقول البسيطة — و`shippingAddress`
+  كان **متحدّد أصلاً**. فـ`QUEUE_PAGE_SIZE` فضل **٤٠** زي ما هو، ومحتاجش
+  إعادة قياس.
+- ⛔ **وممنوع أي backtick جوّه `QUEUE_QUERY`** — دي template literal، وأول
+  backtick بيقفلها والملف **مابيعديش الـ parse أصلاً**. (حصل فعلاً وقت كتابة
+  التعليق على السطر ده.)
+- 🔴 **و`ready.min` في `shared/shell.js` اترفع لـ`1.1.0` في نفس التسليم** —
+  على Worker `1.0.0` عمود العنوان بيقول **«بلا عنوان» على كل صف**، وعمود
+  كامل بجملة تحذير بيتقري **عطل في الأداة** مش «Worker قديم». التدهور نفسه
+  **معلَن ومحصور** (باقي الأعمدة والطابور شغّالين بالكامل)، والحارس بيسمّي
+  السبب بدل ما الموظف يدوّر.
 
 - ⚠️ **الشكل ده عقد**: `dcoShapeRow` و`dcoFlags` و`dcoCod` في الـ shell بيقروا
   المفاتيح دي **بالاسم**. تغيير اسم مفتاح هنا = عمود بيرجع `—` على كل صف
@@ -194,13 +217,15 @@ node docs/queues-check.mjs      # ٨٠ بند للهب كله
 | shopify-graphql-helper | **v1.1.0** |
 | ecommoda-html-builder | **v6.6.0** |
 
-آخر مطابقة: 15-09-2026 · الـ Worker `1.0.0`
+آخر مطابقة: 16-09-2026 · الـ Worker `1.1.0`
 🔴 معلّقة: **إنشاء الـ Worker + ربط Builds + `WORKER_SECRET` (سر `delivery_cod_ops`)
 + `CLIENT_ID`/`CLIENT_SECRET` → Promote** · **تسجيل مجموعة `delivery_cod_ops`
-في `ecommoda-constants`**
+في `ecommoda-constants`** · **نشر `1.1.0` — حاجز لعمود «العنوان»
+(`ready.min = 1.1.0`)**
 
 ---
 
-آخر تحديث: 15-09-2026 — `1.0.0` (أول إصدار)
+آخر تحديث: 16-09-2026 — `1.1.0` (`address1`/`address2` في `shapeOrder` —
+عمود «العنوان» في الواجهة · `ready.min` اترفع لـ`1.1.0` في نفس التسليم)
 
 </div>

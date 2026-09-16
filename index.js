@@ -24,7 +24,7 @@
 //       بيفترقوا مع أول تعديل (درس R1 · v1.11.0 في هب المخزن: الرئيسية قالت
 //       «بوسطة ٦٦» والصفحة فتحت على ٦).
 // ══════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.0.0';
+const WORKER_VERSION = '1.1.0';
 const TOOL_LABEL     = 'ready_orders';   // للتعريف في `diag` بس — **مش** قيمة `tool` في D1
 
 // ══════════════════════════════════════════════════════════════
@@ -256,7 +256,13 @@ const ORDER_FIELDS = `
   displayFinancialStatus
   currentSubtotalLineItemsQuantity
   currentTotalPriceSet { shopMoney { amount currencyCode } }
-  shippingAddress { name city province }
+  # 🔴 address1/address2 سكالر جوّه كائن **متحدّد أصلاً** — تكلفة الاستعلام
+  #    عند شوبيفاي بتتحسب بالكائنات والـ connections، مش بعدد الحقول
+  #    البسيطة. يعني السطر ده **صفر زيادة** على actualQueryCost، و
+  #    QUEUE_PAGE_SIZE فضل ٤٠ زي ما هو.
+  #    ⚠️ وممنوع أي backtick جوّه الكتلة دي — دي template literal، وأول
+  #       backtick بيقفلها والملف بيبوظ بالكامل.
+  shippingAddress { name address1 address2 city province }
   zone:    metafield(namespace: "custom", key: "zone") { value }
   courier: metafield(namespace: "custom", key: "courier") { value }
   s1:      metafield(namespace: "custom", key: "manual_status") { value }
@@ -294,6 +300,12 @@ function shapeOrder(o) {
     fulfillment: o.displayFulfillmentStatus || null,
     financial:   o.displayFinancialStatus   || null,
     customer:  o.shippingAddress?.name || null,
+    // 🔴 سطرا العنوان **خام ومنفصلين** — التركيب بيحصل في الواجهة.
+    //    ⛔ ممنوع نركّبهم هنا في نص واحد: الواجهة بتعرض العنوان في خلية
+    //       واحدة **ومحتاجة تعرف إيه اللي ناقص** عشان تقول «بلا عنوان»
+    //       بدل ما تعرض فاصلة معلّقة على سطر فاضي.
+    address1:  o.shippingAddress?.address1 || null,
+    address2:  o.shippingAddress?.address2 || null,
     city:      o.shippingAddress?.city || null,
     province:  o.shippingAddress?.province || null,
     itemsQty:  o.currentSubtotalLineItemsQuantity ?? null,
