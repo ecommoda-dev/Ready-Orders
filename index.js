@@ -24,7 +24,7 @@
 //       بيفترقوا مع أول تعديل (درس R1 · v1.11.0 في هب المخزن: الرئيسية قالت
 //       «بوسطة ٦٦» والصفحة فتحت على ٦).
 // ══════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.1.0';
+const WORKER_VERSION = '1.2.0';
 const TOOL_LABEL     = 'ready_orders';   // للتعريف في `diag` بس — **مش** قيمة `tool` في D1
 
 // ══════════════════════════════════════════════════════════════
@@ -88,7 +88,11 @@ function getCORS(request) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
     'Access-Control-Allow-Origin':  allowed,
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    // ⚠️ `POST` دخلت في `1.2.0` مع `lookup_orders` — الأكشن ده بياخد
+    //    **مصفوفة أكواد** في الجسم، ومصفوفة في الـ query string بتتقص عند
+    //    سقف طول الـ URL **في صمت**. ومن غير السطر ده الـ preflight بيرفض
+    //    النداء والواجهة بتقول «تعذّر الوصول» على Worker شغّال.
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Vary': 'Origin',
   };
@@ -378,6 +382,160 @@ async function handleQueue(env, request) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// §LOOKUP — «الكود ده لأنهي أوردر، وحالته الحقيقية إيه؟»
+// ══════════════════════════════════════════════════════════════
+//
+// 🔴 **المستهلك واحد ومعروف: تاب «جرد المكتب» في `ready-orders.html`.**
+//    الجرد بيطلّع تلات أقسام، والتالت («موجودة خطأ») هو الطرد اللي اتعمله
+//    سكان وهو **مش في قسم الجاهز للشحن**. القسم ده بلا حالة حقيقية بيبقى
+//    بند بيقول «فيه حاجة» وبس — وتكلفته **فحص يدوي لكل طرد** على شوبيفاي
+//    (`ecommoda-order-lifecycle` قاعدة ١٤). الـ endpoint ده هو اللي بيخلّي
+//    القسم يقول **ليه**: حالة S1 و S2 والزون والمندوب وتاريخ الإلغاء.
+//    ⛔ ومن غير مستهلك كان ممنوع يتضاف من الأصل (نفس قرار `get_logs*`).
+//
+// 🔴 **قراءة بحتة زي باقي الـ Worker** — صفر ميوتيشن وصفر صف D1.
+//
+// 🔴 **الـ ID بيتجاب بـ`nodes(ids:)` مش بـ`orders(query:"id:…")`.**
+//    الباركود على الطرد فيه **Order ID الطويل** (قرار أحمد 16-09-2026)،
+//    و`nodes` بتجيب **٢٥ أوردر في استعلام واحد** بمطابقة **مباشرة** على
+//    المفتاح. أما `orders(query:)` فهو **بحث** (`shopify-graphql-helper`
+//    § name-search): استعلام لكل كود، وأغلى، وبيرجّع «أقرب نتيجة» —
+//    فطرد غلط كان ممكن يتقري صح.
+// ⚠️ والاسم (`#55001`) **لسه بحث** لأنه مالوش مدخل مباشر — فالرد بيتفلتر
+//    بمطابقة **حرفية** على `name` بعد الرجوع. من غير الفلتر ده، البحث
+//    بيرجّع أوردر تاني والشاشة بتقول عنه إنه هو.
+const LOOKUP_MAX_ITEMS   = 200;   // سقف العناصر في النداء الواحد
+const LOOKUP_NODES_CHUNK = 25;    // `nodes(ids:)` لكل استعلام
+const LOOKUP_NAME_BATCH  = 5;     // بحوث الاسم بالتوازي
+
+// ⚠️ **حقول أقل من الطابور عن قصد** — القسم ده بيجاوب على سؤال واحد
+//    («ده إيه وحالته إيه»)، فمفيش عنوان ولا مبلغ ولا أوقات تغليف.
+//    حقل بلا مستهلك في الشاشة = تكلفة استعلام بلا مقابل.
+const LOOKUP_FIELDS = `
+  id
+  legacyResourceId
+  name
+  createdAt
+  cancelledAt
+  displayFulfillmentStatus
+  displayFinancialStatus
+  shippingAddress { name city province }
+  zone:    metafield(namespace: "custom", key: "zone") { value }
+  courier: metafield(namespace: "custom", key: "courier") { value }
+  s1:      metafield(namespace: "custom", key: "manual_status") { value }
+  s2:      metafield(namespace: "custom", key: "status_2_r_e") { value }
+  w1:      metafield(namespace: "custom", key: "package_whereabouts_s1") { value }
+  w2:      metafield(namespace: "custom", key: "package_whereabouts_s2") { value }
+`;
+
+const LOOKUP_NODES_QUERY = `
+query LookupByIds($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Order { ${LOOKUP_FIELDS} }
+  }
+}`;
+
+const LOOKUP_NAME_QUERY = `
+query LookupByName($q: String!) {
+  orders(first: 3, query: $q) {
+    nodes { ${LOOKUP_FIELDS} }
+  }
+}`;
+
+function shapeLookup(o) {
+  return {
+    orderId:   o.legacyResourceId || (o.id ? String(o.id).split('/').pop() : null),
+    orderGid:  o.id,
+    orderName: o.name,
+    createdAt: o.createdAt,
+    cancelledAt: o.cancelledAt || null,
+    fulfillment: o.displayFulfillmentStatus || null,
+    financial:   o.displayFinancialStatus   || null,
+    customer:  o.shippingAddress?.name || null,
+    city:      o.shippingAddress?.city || null,
+    province:  o.shippingAddress?.province || null,
+    zone:      o.zone?.value    || null,
+    courier:   o.courier?.value || null,
+    s1:        o.s1?.value      || null,
+    s2:        o.s2?.value      || null,
+    whereaboutsS1: o.w1?.value  || null,
+    whereaboutsS2: o.w2?.value  || null,
+  };
+}
+
+// ─── §LOOKUP::handleLookup ───
+// الجسم: `{ ids: ['6959895839042', …], names: ['#55001', …] }`
+// الرد:  `{ ok, results: [{ key, kind, found, order|null }], truncated }`
+//
+// 🔴 **الرد فيه مدخل لكل مفتاح اتبعت — حتى اللي مالقيناهوش** (`found: false`).
+//    حذف المفقود من الرد كان بيخلّي الواجهة تربط النتايج بالترتيب، وترتيب
+//    ناقص عنصر واحد بيزحلق **كل** الباقي: حالة أوردر بتتعرض على أوردر تاني.
+// ⚠️ والاقتطاع **مُعلَن** (`truncated`) — قايمة أطول من السقف بترجع مقصوصة
+//    والواجهة بتقول كده، بدل ما الموظف يفتكر إن الباقي «مالقيناهوش».
+async function handleLookup(env, request) {
+  assertEnv(env, 'shopify');
+  const body  = await request.json().catch(() => ({}));
+  const rawIds   = Array.isArray(body?.ids)   ? body.ids   : [];
+  const rawNames = Array.isArray(body?.names) ? body.names : [];
+
+  // ⚠️ التطبيع والتفريد **قبل** أي نداء — نفس الكود ممكن يتعمله سكان
+  //    مرتين، ونداءين لنفس الأوردر تكلفة بلا مقابل.
+  const ids = [...new Set(rawIds.map(v => String(v ?? '').replace(/\D/g, ''))
+                                .filter(v => v.length >= 6 && v.length <= 20))];
+  const names = [...new Set(rawNames.map(v => String(v ?? '').trim())
+                                    .filter(Boolean)
+                                    .map(v => v.startsWith('#') ? v : '#' + v))];
+
+  const truncated = (ids.length + names.length) > LOOKUP_MAX_ITEMS;
+  const useIds    = ids.slice(0, LOOKUP_MAX_ITEMS);
+  const useNames  = names.slice(0, Math.max(0, LOOKUP_MAX_ITEMS - useIds.length));
+
+  if (!useIds.length && !useNames.length)
+    return json({ ok: true, results: [], truncated: false }, 200, request);
+
+  const token   = await getAccessToken(env);
+  const results = [];
+
+  // ── ① الـ IDs — `nodes(ids:)` بمطابقة مباشرة ──
+  for (let i = 0; i < useIds.length; i += LOOKUP_NODES_CHUNK) {
+    const chunk = useIds.slice(i, i + LOOKUP_NODES_CHUNK);
+    const data  = await shopifyGQL(env, token, LOOKUP_NODES_QUERY,
+      { ids: chunk.map(v => `gid://shopify/Order/${v}`) }, 'lookupIds');
+    const nodes = data.data?.nodes;
+    // ⚠️ الرد الناجح بلا `nodes` = عقد اتكسر، **مش** «مالقيناهوش».
+    if (!Array.isArray(nodes)) throw new Error('lookupIds: رد شوبيفاي بلا `nodes`');
+    // 🔴 `nodes` بترجّع المصفوفة **بنفس ترتيب الـ ids** و`null` لكل واحد
+    //    مالوش أوردر (أو نوعه مش Order) — فالربط بالفهرس هنا مضمون بالعقد.
+    chunk.forEach((key, k) => {
+      const n = nodes[k];
+      results.push(n && n.id
+        ? { key, kind: 'id', found: true,  order: shapeLookup(n) }
+        : { key, kind: 'id', found: false, order: null });
+    });
+  }
+
+  // ── ② الأسماء — **بحث** بمطابقة حرفية بعد الرجوع ──
+  for (let i = 0; i < useNames.length; i += LOOKUP_NAME_BATCH) {
+    const batch = useNames.slice(i, i + LOOKUP_NAME_BATCH);
+    const done  = await Promise.all(batch.map(async (key) => {
+      const data  = await shopifyGQL(env, token, LOOKUP_NAME_QUERY,
+        { q: `name:${key}` }, 'lookupName');
+      const nodes = data.data?.orders?.nodes;
+      if (!Array.isArray(nodes)) throw new Error('lookupName: رد شوبيفاي بلا `orders`');
+      // 🔴 المطابقة الحرفية إلزامية — البحث بيرجّع «أقرب نتيجة»، فأوردر
+      //    `#55001` كان بيرجّع على بحث `#5500`.
+      const hit = nodes.find(n => String(n?.name || '') === key);
+      return hit
+        ? { key, kind: 'name', found: true,  order: shapeLookup(hit) }
+        : { key, kind: 'name', found: false, order: null };
+    }));
+    results.push(...done);
+  }
+
+  return json({ ok: true, results, truncated }, 200, request);
+}
+
+// ══════════════════════════════════════════════════════════════
 // §DIAG — فحص ذاتي بلا أي كتابة
 // ══════════════════════════════════════════════════════════════
 // الشكل المعتمد للجديد: **مصفوفة** `[{ ok, label, detail, hint }]` — `ok`
@@ -484,6 +642,16 @@ export default {
       if (action === 'diag') return await handleDiag(env, request);
 
       if (action === 'get_ready_queue') return await handleQueue(env, request);
+
+      // 🔴 **`POST` وبس** — `lookup_orders` بياخد مصفوفة أكواد في الجسم.
+      //    ⚠️ ونفس الأكشن على `GET` بيرجّع **405 باسمه**، مش 404 «أكشن مش
+      //       معروف»: الرسالة التانية بتخلّي الواجهة تفتكر إن الـ Worker
+      //       نسخة قديمة، والحقيقة إن الطريقة غلط.
+      if (action === 'lookup_orders') {
+        if (request.method !== 'POST')
+          return json({ ok: false, error: 'lookup_orders لازم POST' }, 405, request);
+        return await handleLookup(env, request);
+      }
 
       // 🔴 **انحراف مقصود ومكتوب:** مفيش `check_employee`/`register_pin`/
       //    `verify_employee`/`log_logout`/`get_employees`/`get_logs*` هنا.
