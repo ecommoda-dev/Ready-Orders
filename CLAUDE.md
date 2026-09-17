@@ -299,7 +299,7 @@ const ALLOWED_ORIGINS = ['https://ecommoda-dev.github.io'];
 cd Delivery-COD-Operations-Center
 node docs/rules-check.mjs       # ٩٠ بند منطق (§QUEUE-RULES + §AUDIT-RULES) — بلا تنصيب
 npm i playwright postcss --no-save
-node docs/queues-check.mjs      # ١٦٩ بند للهب كله — §⑨ منها لتاب الجرد
+node docs/queues-check.mjs      # ٢٣٣ بند للهب كله — §⑨ منها لتاب الجرد
 ```
 
 > ⚠️ **الفحصان بيمسكوا حاجتين مختلفتين:** `queues-check` بيشغّل الصفحة على
