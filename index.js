@@ -24,7 +24,7 @@
 //       بيفترقوا مع أول تعديل (درس R1 · v1.11.0 في هب المخزن: الرئيسية قالت
 //       «بوسطة ٦٦» والصفحة فتحت على ٦).
 // ══════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.3.0';
+const WORKER_VERSION = '1.4.0';
 const TOOL_LABEL     = 'ready_orders';   // للتعريف في `diag` بس — **مش** قيمة `tool` في D1
 
 // ══════════════════════════════════════════════════════════════
@@ -68,6 +68,31 @@ const QUEUE_PAGE_SIZE = 40;
 // ٤٠ × ١٢ = ٤٨٠ أوردر لكل ماكينة. طابور «جاهز» بيتفضّى أول بأول (٦٧ أوردر
 // يوم القياس 15-09-2026 في محطة المخزن)، فالسقف ده واسع بمراحل.
 const QUEUE_MAX_PAGES = 12;
+
+// ─── §CONSTANTS::floor — 🔴 أرضية تاريخ الطابور (طلب أحمد 17-09-2026) ───
+//
+// 🔴 **الطابور بيبدأ من أوردرات `01/04/2026` وطالع** — واللي أقدم من كده
+//    **مابيتجابش من شوبيفاي أصلاً**.
+// ⚠️ **ودي فلترة زيادة في الاستعلام — أول واحدة في الأداة دي.** القاعدة
+//    المكتوبة تحت («الاستعلام بيسأل عن الحالة وبس») اتكتبت ضد فلتر
+//    **تشغيلي** (زون · مندوب · تغليف) يخلّي أوردر شغّال **يختفي في صمت**
+//    والموظف يسأل «الأوردر ده فين؟» ومفيش إجابة. الأرضية دي **نوع تاني**:
+//    قرار أحمد إن اللي قبل التاريخ ده **مش شغل المحطة** أصلاً (أوردرات
+//    عالقة من دورة قديمة بتملا الطابور بمئات الصفوف بادجها «متأخر ١٧١
+//    يوم»).
+// 🔴 **والاستبعاد مُعلَن مش صامت** — الأرضية بتترجع في **رد الـ endpoint
+//    نفسه** (`minCreatedAt` · `minCreatedDay`)، وبتتعرض في `?action=diag`،
+//    و«عن الأداة» في الواجهة بيقولها بالنص. استبعاد صامت من طابور بيخلّي
+//    الفرق بين الرقم والواقع **بلا تفسير** — وده بالظبط اللي القاعدة
+//    الأصلية اتكتبت ضده.
+// ⛔ **وتغيير القيمة دي تغيير في المعنى مش في الإعداد** — أي تعديل هنا
+//    لازم ينزل على **الطابورين** (`Shipped-Orders` كمان) وعلى نص «عن
+//    الأداة» في `docs/build-pages.py` في **نفس التمريرة**: أرضيتان
+//    مختلفتان في طابورين على نفس الشاشة بتخلّي الرقمين بيتقروا بقاعدتين.
+// ⚠️ **والتاريخ يوم بتوقيت القاهرة** — بيتحوّل للحظة UTC بـ`Intl`
+//    (`cairoDayStartUtcISO`)، مش بيتبعت كتاريخ مجرّد. الشرح الكامل عند
+//    الدالة نفسها.
+const QUEUE_MIN_CREATED_DAY = '2026-04-01';
 
 const SHOPIFY_API_VERSION = '2026-01';   // `ecommoda-constants` §1 — صريح دايمًا
 
@@ -124,6 +149,31 @@ function cairoParts(d) {
   return o;
 }
 function cairoDate() { const p = cairoParts(new Date()); return `${p.year}-${p.month}-${p.day}`; }
+
+// ─── §HELPERS::time::cairoDayStartUtcISO ───
+// 🔴 **بتحوّل «يوم بتوقيت القاهرة» للحظة UTC اللي بيبدأ عندها** —
+//    `2026-04-01` بتوقيت القاهرة = `2026-03-31T22:00:00Z` (والإزاحة
+//    **محسوبة** من `Intl`، مش مكتوبة ثابت).
+// ⛔ **وممنوع نبعت `created_at:>=2026-04-01` كده على طول** لسببين:
+//    ① تفسير التاريخ المجرّد عند شوبيفاي **مش مضمون** إنه بتوقيت المتجر —
+//       والتاريخ الكامل بـ`Z` بيشيل الغموض ده بالكامل.
+//    ② لو اتفسّر UTC، أوردرات يوم `01/04` من ١٢ بالليل لحد ٢-٣ الفجر
+//       بتوقيت القاهرة **بتقع بره الأرضية** وبتختفي من الطابور — يوم
+//       ناقص بضع ساعات، **بلا أي رسالة**.
+// ⚠️ والدورتين مقصودتين مش تزويق: الأولى بتجيب الإزاحة عند لحظة تقريبية،
+//    والتانية بتصحّحها لو اللحظة دي وقعت على الجهة التانية من تحويل
+//    التوقيت الصيفي (وده بالظبط اللي بيحصل في أيام التحويل).
+function cairoDayStartUtcISO(day) {
+  const [y, m, d] = String(day).split('-').map(Number);
+  const wanted = Date.UTC(y, (m || 1) - 1, d || 1, 0, 0, 0);
+  let ts = wanted;
+  for (let i = 0; i < 2; i++) {
+    const p = cairoParts(new Date(ts));
+    const asIfUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+    ts = wanted - (asIfUtc - ts);
+  }
+  return new Date(ts).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
 
 // ─── §HELPERS::assertEnv ───
 // ⚠️ **مفيش `DB` في القايمة** — الأداة مابتلمسش D1 خالص. لو اتضاف فعل يومًا،
@@ -238,12 +288,17 @@ async function shopifyGQL(env, token, query, variables = {}, opName = 'shopify')
 // §QUEUE — طابور «جاهز للشحن»
 // ══════════════════════════════════════════════════════════════
 //
-// 🔴 **الاستعلام بيسأل عن الحالة وبس.** مفيش أي شرط تاني في الـ `query` —
-//    لا زون ولا مندوب ولا تغليف. السبب مش تبسيط:
+// 🔴 **الاستعلام بيسأل عن الحالة + أرضية التاريخ وبس.** مفيش أي شرط
+//    تشغيلي تاني في الـ `query` — لا زون ولا مندوب ولا تغليف. السبب مش
+//    تبسيط:
 //    ① الأداة **عرض بحت** ومالهاش بوابة كتابة تحمي حد من حاجة.
 //    ② الفلترة الزيادة في الاستعلام معناها أوردر **بيختفي في صمت** —
 //       والموظف بيسأل «الأوردر ده فين؟» ومفيش إجابة. القاعدة هنا:
 //       **يبان وعليه علامة**، مش يختفي (قاعدة ١٣ و١٤ في `order-lifecycle`).
+// ⚠️ **والأرضية (`created_at`) استثناء مُعلَن بقرار أحمد 17-09-2026** —
+//    وهي مش فلتر تشغيلي: اللي قبلها **مش شغل المحطة** أصلاً. وبترجع في
+//    الرد وفي `diag` وفي «عن الأداة» عشان الاستبعاد مايبقاش صامت. الشرح
+//    الكامل عند `QUEUE_MIN_CREATED_DAY` فوق.
 //
 // ⚠️ **وممنوع فلتر على ميتافيلد مش قابل للفلترة.** `package_whereabouts_s1`
 //    مثلاً بيتجاهَل **في صمت** ويرجّع المتجر كله (١٠٬٠٠٠ صف — مقيس
@@ -345,6 +400,16 @@ function shapeOrder(o) {
   };
 }
 
+// ─── §QUEUE::queueQ — شرط الحالة + أرضية التاريخ ─────────────
+// 🔴 **مكان واحد بيركّب الاستعلام للماكينتين** — سطران منفصلين كانوا
+//    هيخلّوا أرضية تتحط على S1 وتتنسى على S2، والنتيجة طابور **نصه
+//    مفلتر ونصه لأ** بلا أي خطأ.
+// ⚠️ **والتاريخ بين علامتي تنصيص** — نفس عادة باقي الفلاتر هنا، والقيمة
+//    فيها `:` و`-` وليهم معنى في صيغة البحث.
+function queueQ(since, statusClause) {
+  return `created_at:>='${since}' AND ${statusClause}`;
+}
+
 async function fetchStatusPage(env, token, q, opName) {
   const out = [];
   let after = null, pages = 0, truncated = false;
@@ -372,9 +437,11 @@ async function handleQueue(env, request) {
   assertEnv(env, 'shopify');
   const token = await getAccessToken(env);
 
+  const since = cairoDayStartUtcISO(QUEUE_MIN_CREATED_DAY);
+
   const [a, b] = await Promise.all([
-    fetchStatusPage(env, token, `metafields.custom.manual_status:'${S1_STATUS.READY}'`,  'readyS1'),
-    fetchStatusPage(env, token, `metafields.custom.status_2_r_e:'${S2_STATUS.READY}'`,   'readyS2'),
+    fetchStatusPage(env, token, queueQ(since, `metafields.custom.manual_status:'${S1_STATUS.READY}'`), 'readyS1'),
+    fetchStatusPage(env, token, queueQ(since, `metafields.custom.status_2_r_e:'${S2_STATUS.READY}'`),  'readyS2'),
   ]);
 
   const byId = new Map();
@@ -388,6 +455,10 @@ async function handleQueue(env, request) {
     queue: 'ready',
     orders: [...byId.values()],
     truncated: a.truncated || b.truncated,
+    // 🔴 **الأرضية بترجع مع الطابور** — استبعاد بيتقال في الرد نفسه أصعب
+    //    بكتير إنه يُنسى من استبعاد مكتوب في `CLAUDE.md` بس.
+    minCreatedDay: QUEUE_MIN_CREATED_DAY,
+    minCreatedAt:  since,
     fetchedAt: new Date().toISOString(),
     cairoDate: cairoDate(),
   }, 200, request);
@@ -617,7 +688,16 @@ async function handleDiag(env, request) {
     ? `currentlyAvailable=${_lastThrottle.currentlyAvailable} / ${_lastThrottle.maximumAvailable} · restoreRate=${_lastThrottle.restoreRate}/s · حجم الصفحة=${QUEUE_PAGE_SIZE}`
     : `لسه مفيش استعلام طابور في الاستدعاء ده · حجم الصفحة=${QUEUE_PAGE_SIZE}`);
 
-  // ⑥ الأصل
+  // ⑥ أرضية تاريخ الطابور — 🔴 **بند معلومة، وسببه إنها استبعاد**
+  // الأرضية بتشيل أوردرات من الطابور، واستبعاد مالوش بند في الفحص الذاتي
+  // بيتحوّل لسؤال «الأوردر ده فين؟» بلا إجابة. البند ده بيقول القيمة
+  // **واللحظة المحسوبة بالظبط** — فلو يوم اتحسب غلط، بيبان هنا.
+  push(true, 'أرضية تاريخ الطابور',
+    `من ${QUEUE_MIN_CREATED_DAY} بتوقيت القاهرة = ${cairoDayStartUtcISO(QUEUE_MIN_CREATED_DAY)} · ` +
+    'الأقدم من كده **مابيتجابش** من شوبيفاي',
+    'القيمة قرار أحمد (17-09-2026) ولازم تكون **نفسها** في shipped-orders-worker');
+
+  // ⑦ الأصل
   const origin = request.headers.get('Origin') || '(بلا Origin)';
   push(ALLOWED_ORIGINS.includes(origin), 'الـ Origin', `${origin} · المسموح: ${ALLOWED_ORIGINS.join(', ')}`,
        'الواجهة لازم تتفتح من https://ecommoda-dev.github.io — الفتح من ملف محلي بيترفض');
