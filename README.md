@@ -2,7 +2,7 @@
 
 # طابور الأوردرات الجاهزة — Ready Orders
 
-![worker](https://img.shields.io/badge/worker-v1.2.0-blue)
+![worker](https://img.shields.io/badge/worker-v1.3.0-blue)
 
 **Worker بس — مفيش واجهة في الريبو ده.**
 
@@ -25,6 +25,7 @@
 GET  ?action=get_config        نسخة الـ Worker
 GET  ?action=diag              فحص ذاتي بلا كتابة
 GET  ?action=get_ready_queue   أوردرات Ready (الماكينتين) بحقولها الخام
+                               ← ومعاها `note` (ملحوظة الأوردر) من 1.3.0
 POST ?action=lookup_orders     حالة أوردرات معيّنة بالـ ID أو بالاسم (من 1.2.0)
                                ← مستهلكها تاب «جرد المكتب» في الواجهة
 ```
