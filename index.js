@@ -24,7 +24,7 @@
 //       بيفترقوا مع أول تعديل (درس R1 · v1.11.0 في هب المخزن: الرئيسية قالت
 //       «بوسطة ٦٦» والصفحة فتحت على ٦).
 // ══════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.2.0';
+const WORKER_VERSION = '1.3.0';
 const TOOL_LABEL     = 'ready_orders';   // للتعريف في `diag` بس — **مش** قيمة `tool` في D1
 
 // ══════════════════════════════════════════════════════════════
@@ -267,6 +267,14 @@ const ORDER_FIELDS = `
   #    ⚠️ وممنوع أي backtick جوّه الكتلة دي — دي template literal، وأول
   #       backtick بيقفلها والملف بيبوظ بالكامل.
   shippingAddress { name address1 address2 city province }
+  # 🔴 note — ملحوظة الأوردر اللي الموظف كاتبها على شوبيفاي (من 1.3.0).
+  #    سكالر على الأوردر نفسه: **صفر زيادة** على actualQueryCost (نفس منطق
+  #    address1/address2 فوق)، وQUEUE_PAGE_SIZE فضل ٤٠ زي ما هو.
+  #    ⚠️ **وبيترجع خام** — التقصير والتنسيق في الواجهة. النص ممكن يكون
+  #       سطور، والـ Worker مالوش رأي في شكله.
+  #    ⛔ **وممنوع أي backtick هنا** — الكتلة دي template literal، وأول
+  #       backtick بيقفلها والملف بيبوظ بالكامل (نفس التحذير فوق).
+  note
   zone:    metafield(namespace: "custom", key: "zone") { value }
   courier: metafield(namespace: "custom", key: "courier") { value }
   s1:      metafield(namespace: "custom", key: "manual_status") { value }
@@ -308,6 +316,10 @@ function shapeOrder(o) {
     //    ⛔ ممنوع نركّبهم هنا في نص واحد: الواجهة بتعرض العنوان في خلية
     //       واحدة **ومحتاجة تعرف إيه اللي ناقص** عشان تقول «بلا عنوان»
     //       بدل ما تعرض فاصلة معلّقة على سطر فاضي.
+    // 🔴 **`note` خام زي ما هو** — الواجهة بتعرضه في عمود «ملحوظات»
+    //    وبتقصّه بصريًا. `|| null` عشان النص الفاضي (`''`) يتقري «مفيش
+    //    ملحوظة» بالظبط زي الغياب، مش خلية فيها مسافة.
+    note:      o.note || null,
     address1:  o.shippingAddress?.address1 || null,
     address2:  o.shippingAddress?.address2 || null,
     city:      o.shippingAddress?.city || null,
